@@ -1,86 +1,85 @@
-﻿using System;
+﻿using MyVet.Web.Data.Entities;
+using MyVet.Web.Helpers;
+using System;
 using System.Linq;
 using System.Threading.Tasks;
-using MyVet.Web.Data.Entities;
-
 
 namespace MyVet.Web.Data
 {
     public class SeedDb
     {
         private readonly DataContext _dataContext;
-        public SeedDb(DataContext dataContext)
+        private readonly IUserHelper _userHelper;
+
+        public SeedDb(
+            DataContext context,
+            IUserHelper userHelper)
         {
-            _dataContext = dataContext;
+            _dataContext = context;
+            _userHelper = userHelper;
         }
 
         public async Task SeedAsync()
         {
             await _dataContext.Database.EnsureCreatedAsync();
-
-            await CheckAgendasAsync();
-            await CheckOwnersAsync();
-            await CheckPetsAsync();
+            await CheckRoles();
+            var manager = await CheckUserAsync("1010", "Juan", "Zuluaga", "jzuluaga55@gmail.com", "350 634 2747", "Calle Luna Calle Sol", "Admin");
+            var customer = await CheckUserAsync("2020", "Juan", "Zuluaga", "jzuluaga55@hotmail.com", "350 634 2747", "Calle Luna Calle Sol", "Customer");
             await CheckPetTypesAsync();
             await CheckServiceTypesAsync();
+            await CheckOwnerAsync(customer);
+            await CheckManagerAsync(manager);
+            await CheckPetsAsync();
+            await CheckAgendasAsync();
         }
 
-        private async Task CheckAgendasAsync()
+        private async Task CheckRoles()
         {
-            if (!_dataContext.Agendas.Any())
+            await _userHelper.CheckRoleAsync("Admin");
+            await _userHelper.CheckRoleAsync("Customer");
+        }
+
+        private async Task<User> CheckUserAsync(string document,
+            string firstName,
+            string lastName, 
+            string email, 
+            string phone, 
+            string address, 
+            string role)
+        {
+            var user = await _userHelper.GetUserByEmailAsync(email);
+            if (user == null)
             {
-                var initialDate = new DateTime(DateTime.Now.Year, DateTime.Now.Month, DateTime.Now.Day, 8, 0, 0);
-                var finalDate = initialDate.AddYears(1);
-                while (initialDate < finalDate)
+                user = new User
                 {
-                    if (initialDate.DayOfWeek != DayOfWeek.Sunday)
-                    {
-                        var finalDate2 = initialDate.AddHours(10);
-                        while (initialDate < finalDate2)
-                        {
-                            _dataContext.Agendas.Add(new Agenda
-                            {
-                                Date = initialDate.ToUniversalTime(),
-                                IsAvailable = true
-                            });
+                    FirstName   = firstName,
+                    LastName    = lastName,
+                    Email       = email,
+                    UserName    = email,
+                    PhoneNumber = phone,
+                    Address     = address,
+                    Document    = document
+                };
 
-                            initialDate = initialDate.AddMinutes(30);
-                        }
+                await _userHelper.AddUserAsync(user, "123456");
+                await _userHelper.AddUserToRoleAsync(user, role);
+            }
 
-                        initialDate = initialDate.AddHours(14);
-                    }
-                    else
-                    {
-                        initialDate = initialDate.AddDays(1);
-                    }
-                }
+            return user;
+        }
+
+        private async Task CheckPetsAsync()
+        {
+            if (!_dataContext.Pets.Any())
+            {
+                var owner   = _dataContext.Owners.FirstOrDefault();
+                var petType = _dataContext.PetTypes.FirstOrDefault();
+
+                AddPet("Otto", owner, petType, "Shih tzu");
+                AddPet("Killer", owner, petType, "Dobermann");
 
                 await _dataContext.SaveChangesAsync();
             }
-        }
-
-        private async Task CheckOwnersAsync()
-        {
-            if (!_dataContext.Owners.Any())
-            {
-                AddOwner("8989898", "Juan", "Zuluaga", "234 3232", "310 322 3221", "Calle Luna Calle Sol");
-                AddOwner("7655544", "Jose", "Cardona", "343 3226", "300 322 3221", "Calle 77 #22 21");
-                AddOwner("6565555", "Maria", "López", "450 4332", "350 322 3221", "Carrera 56 #22 21");
-                await _dataContext.SaveChangesAsync();
-            }
-        }
-
-        private void AddOwner(string document, string firstName, string lastName, string fixedPhone, string cellPhone, string address)
-        {
-            _dataContext.Owners.Add(new Owner
-            {
-                Address = address,
-                CellPhone = cellPhone,
-                Document = document,
-                FirstName = firstName,
-                FixedPhone = fixedPhone,
-                LastName = lastName
-            });
         }
 
         private async Task CheckServiceTypesAsync()
@@ -100,28 +99,24 @@ namespace MyVet.Web.Data
             {
                 _dataContext.PetTypes.Add(new PetType { Name = "Perro" });
                 _dataContext.PetTypes.Add(new PetType { Name = "Gato" });
-                _dataContext.PetTypes.Add(new PetType { Name = "Tortuga" });
-                _dataContext.PetTypes.Add(new PetType { Name = "León" });
-                _dataContext.PetTypes.Add(new PetType { Name = "Leona" });
-                _dataContext.PetTypes.Add(new PetType { Name = "Hámsters" });
-                _dataContext.PetTypes.Add(new PetType { Name = "Pájaros" });
-                _dataContext.PetTypes.Add(new PetType { Name = "Conejo" });
-                _dataContext.PetTypes.Add(new PetType { Name = "Hurón" });
-                _dataContext.PetTypes.Add(new PetType { Name = "Hámster" });
-
                 await _dataContext.SaveChangesAsync();
             }
         }
 
-        private async Task CheckPetsAsync()
+        private async Task CheckOwnerAsync(User user)
         {
-            var owner   = _dataContext.Owners.FirstOrDefault();
-            var petType = _dataContext.PetTypes.FirstOrDefault();
-
-            if (!_dataContext.Pets.Any())
+            if (!_dataContext.Owners.Any())
             {
-                AddPet("Otto", owner, petType, "Shih tzu");
-                AddPet("Killer", owner, petType, "Dobermann");
+                _dataContext.Owners.Add(new Owner { User = user });
+                await _dataContext.SaveChangesAsync();
+            }
+        }
+
+        private async Task CheckManagerAsync(User user)
+        {
+            if (!_dataContext.Managers.Any())
+            {
+                _dataContext.Managers.Add(new Manager { User = user });
                 await _dataContext.SaveChangesAsync();
             }
         }
@@ -138,6 +133,39 @@ namespace MyVet.Web.Data
             });
         }
 
+        private async Task CheckAgendasAsync()
+        {
+            if (!_dataContext.Agendas.Any())
+            {
+                var initialDate = new DateTime(DateTime.Now.Year, DateTime.Now.Month, DateTime.Now.Day, 8, 0, 0);
+                var finalDate = initialDate.AddYears(1);
+                while (initialDate < finalDate)
+                {
+                    if (initialDate.DayOfWeek != DayOfWeek.Sunday)
+                    {
+                        var finalDate2 = initialDate.AddHours(10);
+                        while (initialDate < finalDate2)
+                        {
+                            _dataContext.Agendas.Add(new Agenda
+                            {
+                                Date = initialDate,
+                                IsAvailable = true
+                            });
 
+                            initialDate = initialDate.AddMinutes(30);
+                        }
+
+                        initialDate = initialDate.AddHours(14);
+                    }
+                    else
+                    {
+                        initialDate = initialDate.AddDays(1);
+                    }
+                }
+            }
+
+            await _dataContext.SaveChangesAsync();
+        }
     }
 }
+
